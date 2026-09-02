@@ -9,6 +9,7 @@ Integracja Home Assistant z systemem Librus Synergia, umożliwiająca monitorowa
 - 📊 **Monitoring ocen** - wszystkie oceny ze wszystkich przedmiotów
 - 📈 **Statystyki** - średnie ocen, liczba ocen, trend
 - 📧 **Wiadomości** - najnowsze wiadomości z dziennika
+- 🗓️ **Plan lekcji** - bieżący i następny tydzień, z zastępstwami i odwołanymi lekcjami
 - 🔔 **Powiadomienia** - automatyczne powiadomienia o nowych ocenach/wiadomościach
 - 🏠 **Dashboard** - piękne karty w Home Assistant
 
@@ -23,8 +24,13 @@ Integracja tworzy następujące sensory:
 | `sensor.librus_oceny` | Wszystkie oceny bieżącego semestru | liczba ocen |
 | `sensor.librus_srednia_ocen` | **Globalna średnia** ze wszystkich przedmiotów | float (wykres 📈) |
 | `sensor.librus_wiadomosci` | Ostatnie 5 wiadomości z pełną treścią | liczba nieprzeczytanych |
+| `sensor.librus_plan_lekcji` | Plan lekcji na bieżący i następny tydzień | liczba lekcji dzisiaj |
+| `sensor.librus_nastepna_lekcja` | Trwająca lub najbliższa lekcja (odświeżana co minutę) | nazwa przedmiotu |
 | `sensor.librus_<przedmiot>` | Oceny z danego przedmiotu (np. `sensor.librus_matematyka`) | lista ocen: "4, 3+, 5" |
 | `sensor.librus_srednia_<przedmiot>` | **Średnia** z danego przedmiotu (np. `sensor.librus_srednia_matematyka`) | float (wykres 📈) |
+
+Sensor `nastepna_lekcja` przelicza swój stan co minutę lokalnie — **bez dodatkowych zapytań do Librusa**
+(dane planu pobierane są razem z resztą, co 2 godziny).
 
 Sensory średnich mają `state_class: measurement` — HA automatycznie rysuje dla nich wykres historyczny po kliknięciu w encję.
 
@@ -216,6 +222,112 @@ content: >
   {% endfor %} {% else %} Brak nadchodzących zdarzeń. {% endif %}
 ```
 
+### Karta planu lekcji (Mushroom)
+
+> **Wymagane:** [Mushroom Cards](https://github.com/piitaya/lovelace-mushroom) zainstalowane przez HACS.
+> Nazwy encji znajdziesz w **Developer Tools → States** (szukaj `plan_lekcji`).
+
+```yaml
+type: vertical-stack
+cards:
+  - type: custom:mushroom-title-card
+    title: 📚 Plan lekcji
+    subtitle: >-
+      {% set p = 'sensor.librus_imie_nazwisko_plan_lekcji' %}
+      {% set n = states(p) | int(0) %}
+      {% if n > 0 %}
+        Dziś {{ n }} lekcji · {{ state_attr(p, 'pierwsza_lekcja') }}–{{ state_attr(p, 'ostatnia_lekcja') }}
+      {% else %}
+        Dziś brak lekcji 🎉
+      {% endif %}
+
+  - type: custom:mushroom-template-card
+    primary: >-
+      {% set s = 'sensor.librus_imie_nazwisko_nastepna_lekcja' %}
+      {% if states(s) in ['unknown', 'unavailable', 'None'] %}
+        Brak zaplanowanych lekcji
+      {% else %}
+        {{ states(s) }}
+      {% endif %}
+    secondary: >-
+      {% set s = 'sensor.librus_imie_nazwisko_nastepna_lekcja' %}
+      {% if states(s) in ['unknown', 'unavailable', 'None'] %}
+        —
+      {% elif state_attr(s, 'trwa_teraz') %}
+        Trwa do {{ state_attr(s, 'do') }} · sala {{ state_attr(s, 'nauczyciel_sala') }}
+      {% else %}
+        {{ state_attr(s, 'numer') }}. lekcja · {{ state_attr(s, 'od') }} ·
+        za {{ state_attr(s, 'za_minut') }} min
+      {% endif %}
+    icon: >-
+      {% set s = 'sensor.librus_imie_nazwisko_nastepna_lekcja' %}
+      {% if state_attr(s, 'trwa_teraz') %}mdi:school{% else %}mdi:clock-start{% endif %}
+    icon_color: >-
+      {% set s = 'sensor.librus_imie_nazwisko_nastepna_lekcja' %}
+      {% if state_attr(s, 'zastepstwo') %}orange
+      {% elif state_attr(s, 'trwa_teraz') %}green
+      {% else %}blue{% endif %}
+    badge_icon: >-
+      {% if state_attr('sensor.librus_imie_nazwisko_nastepna_lekcja', 'zastepstwo') %}
+        mdi:account-switch
+      {% endif %}
+    badge_color: orange
+
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: sensor.librus_imie_nazwisko_plan_lekcji
+        attribute: sa_zmiany
+        state: true
+    card:
+      type: custom:mushroom-template-card
+      primary: Zmiany w planie
+      secondary: >-
+        {% set z = state_attr('sensor.librus_imie_nazwisko_plan_lekcji', 'zmiany') %}
+        {{ z | count }} zmian w najbliższym tygodniu
+      icon: mdi:calendar-alert
+      icon_color: orange
+
+  - type: markdown
+    content: >-
+      {% set lekcje = state_attr('sensor.librus_imie_nazwisko_plan_lekcji', 'dzisiaj') %}
+      {% if lekcje %} | # | Godzina | Przedmiot | Sala |
+       |---|---------|-----------|------|
+      {% for l in lekcje %} | {{ l.numer }} | {{ l.od }}–{{ l.do }} |
+      {% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo %}**{{ l.przedmiot }}** ⚠️{% else %}{{ l.przedmiot }}{% endif %}
+      | {{ l.nauczyciel_sala }} |
+
+      {% endfor %} {% else %} Dziś nie ma lekcji. {% endif %}
+```
+
+Legenda:
+- 🟢 zielona ikona = lekcja trwa teraz
+- 🟠 pomarańczowa + 🔀 badge = zastępstwo
+- ~~przekreślony~~ przedmiot = lekcja odwołana
+
+### Karta planu na cały tydzień
+
+```yaml
+type: markdown
+title: 🗓️ Plan tygodnia
+content: >-
+  {% set tydzien = state_attr('sensor.librus_imie_nazwisko_plan_lekcji', 'tydzien') %}
+  {% if tydzien %} {% for data, lekcje in tydzien.items() %}
+  **{{ lekcje[0].dzien_tygodnia }} {{ data }}**
+
+  | # | Godzina | Przedmiot | Sala |
+   |---|---------|-----------|------|
+  {% for l in lekcje %} | {{ l.numer }} | {{ l.od }}–{{ l.do }} |
+  {% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo %}**{{ l.przedmiot }}** ⚠️{% else %}{{ l.przedmiot }}{% endif %}
+  | {{ l.nauczyciel_sala }} |
+
+  {% endfor %}
+  {% endfor %} {% else %} Brak danych o planie lekcji. {% endif %}
+```
+
+Atrybut `tydzien` zawiera najbliższe 7 dni (integracja pobiera bieżący i następny tydzień,
+więc w piątek i w weekend widać już kolejny tydzień).
+
 ### Wykres średniej z przedmiotu (Gauge)
 ```yaml
 type: gauge
@@ -285,6 +397,35 @@ automation:
 ```
 
 > **Gdzie znaleźć nazwę telefonu?** HA → Settings → Devices & Services → Mobile App → nazwa urządzenia (np. `notify.mobile_app_samsung_galaxy_s24`)
+
+### 🔀 Powiadomienie o zastępstwie lub odwołanej lekcji
+
+Zdarzenie: `librus_apix_zmiana_planu`
+Dostępne dane: `data`, `dzien_tygodnia`, `numer`, `przedmiot`, `od`, `do`, `rodzaj` (`zastepstwo` / `odwolana`), `info`
+
+```yaml
+automation:
+  - alias: "Librus - zmiana w planie lekcji"
+    trigger:
+      platform: event
+      event_type: librus_apix_zmiana_planu
+    action:
+      - service: notify.mobile_app_NAZWA_TWOJEGO_TELEFONU
+        data:
+          title: >-
+            {% if trigger.event.data.rodzaj == 'odwolana' %}
+              🚫 Lekcja odwołana
+            {% else %}
+              🔀 Zastępstwo
+            {% endif %}
+          message: >-
+            {{ trigger.event.data.dzien_tygodnia }} {{ trigger.event.data.data }},
+            {{ trigger.event.data.numer }}. lekcja ({{ trigger.event.data.od }}):
+            {{ trigger.event.data.przedmiot }}
+```
+
+> Pierwsze uruchomienie integracji tylko zapamiętuje bieżący stan planu — powiadomienia
+> przychodzą dopiero o **nowo wykrytych** zmianach.
 
 ## 🛠️ Rozwój
 
