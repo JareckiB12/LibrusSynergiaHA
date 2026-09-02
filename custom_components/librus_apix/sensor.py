@@ -6,8 +6,10 @@ from typing import Any, Dict, List, Optional
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -15,6 +17,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .const import DOMAIN, SCAN_INTERVAL
+from .plan_lekcji import lekcje_dnia, nastepna_lekcja, pogrupuj_wg_dni
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +79,8 @@ async def async_setup_entry(
         LibrusWiadomosciSensor(coordinator, config_entry),
         LibrusZadaniaSensor(coordinator, config_entry),
         LibrusTerminarzSensor(coordinator, config_entry),
+        LibrusPlanLekcjiSensor(coordinator, config_entry),
+        LibrusNastepnaLekcjaSensor(coordinator, config_entry),
     ]
 
     # Tworz czujniki per przedmiot na podstawie pierwszego pobrania danych
@@ -93,6 +98,7 @@ EVENT_NOWA_WIADOMOSC = f"{DOMAIN}_nowa_wiadomosc"
 EVENT_NOWA_OCENA = f"{DOMAIN}_nowa_ocena"
 EVENT_NOWE_ZADANIE = f"{DOMAIN}_nowe_zadanie"
 EVENT_NOWE_ZDARZENIE = f"{DOMAIN}_nowe_zdarzenie"
+EVENT_ZMIANA_PLANU = f"{DOMAIN}_zmiana_planu"
 
 
 class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
@@ -105,6 +111,7 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
         self._seen_grade_ids: set = set()
         self._seen_homework_ids: set = set()
         self._seen_schedule_ids: set = set()
+        self._seen_plan_ids: set = set()
         self._first_run: bool = True
         super().__init__(
             hass,
@@ -124,6 +131,7 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
             messages = await self.client.async_get_messages(count=10)
             homework_raw = await self.client.async_get_homework()
             schedule_raw = await self.client.async_get_schedule()
+            plan_raw = await self.client.async_get_timetable()
 
             if grades is None:
                 # Zachowaj poprzednie dane o ocenach jesli dostepne, wiadomosci zaktualizuj jesli OK
@@ -150,6 +158,11 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
                         if schedule_raw is not None
                         else prev.get("terminarz", [])
                     ),
+                    "plan_lekcji": (
+                        plan_raw
+                        if plan_raw is not None
+                        else prev.get("plan_lekcji", [])
+                    ),
                 }
 
             # Grupuj oceny wg przedmiotu i oznacz nowe
@@ -170,6 +183,7 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
             wiadomosci = self._build_wiadomosci(messages)
             zadania = self._build_zadania(homework_raw)
             terminarz = schedule_raw if schedule_raw is not None else []
+            plan_lekcji = plan_raw if plan_raw is not None else []
 
             result = {
                 "student_info": student_info,
@@ -178,6 +192,7 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
                 "wiadomosci": wiadomosci,
                 "zadania": zadania,
                 "terminarz": terminarz,
+                "plan_lekcji": plan_lekcji,
                 "semestr_biezacy": current_sem,
             }
 
@@ -198,10 +213,16 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
                     self._seen_schedule_ids.add(
                         (zdarzenie["data"], zdarzenie["tytul"], zdarzenie["przedmiot"])
                     )
+                for lekcja in plan_lekcji:
+                    if lekcja["zastepstwo"] or lekcja["odwolana"]:
+                        self._seen_plan_ids.add(
+                            (lekcja["data"], lekcja["numer"], lekcja["info"])
+                        )
             else:
                 self._fire_events(wiadomosci, grades)
                 self._fire_homework_events(zadania)
                 self._fire_schedule_events(terminarz)
+                self._fire_plan_events(plan_lekcji)
 
             return result
 
@@ -259,6 +280,33 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
                         "godzina": zdarzenie["godzina"],
                     },
                 )
+
+    def _fire_plan_events(self, plan: List[Dict]) -> None:
+        """Wyslij zdarzenia HA dla nowych zastepstw i odwolanych lekcji."""
+        for lekcja in plan:
+            if not (lekcja["zastepstwo"] or lekcja["odwolana"]):
+                continue
+            plan_id = (lekcja["data"], lekcja["numer"], lekcja["info"])
+            if plan_id in self._seen_plan_ids:
+                continue
+            self._seen_plan_ids.add(plan_id)
+            _LOGGER.debug(
+                "Zmiana w planie: %s lekcja %s - %s",
+                lekcja["data"], lekcja["numer"], lekcja["info"],
+            )
+            self.hass.bus.fire(
+                EVENT_ZMIANA_PLANU,
+                {
+                    "data": lekcja["data"],
+                    "dzien_tygodnia": lekcja["dzien_tygodnia"],
+                    "numer": lekcja["numer"],
+                    "przedmiot": lekcja["przedmiot"],
+                    "od": lekcja["od"],
+                    "do": lekcja["do"],
+                    "rodzaj": "odwolana" if lekcja["odwolana"] else "zastepstwo",
+                    "info": lekcja["info"],
+                },
+            )
 
     def _build_wiadomosci(self, messages: Optional[List[Dict]]) -> List[Dict]:
         """Oznacz nowe wiadomosci i zwroc liste."""
@@ -620,6 +668,121 @@ class LibrusZadaniaSensor(CoordinatorEntity, SensorEntity):
             "zadania": zadania,
             "liczba_zadan": len(zadania),
             "kategorie": kategorie,
+        }
+
+
+class LibrusPlanLekcjiSensor(CoordinatorEntity, SensorEntity):
+    """Czujnik z planem lekcji (biezacy i nastepny tydzien)."""
+
+    def __init__(self, coordinator: LibrusDataUpdateCoordinator, config_entry: ConfigEntry) -> None:
+        """Inicjalizacja."""
+        super().__init__(coordinator)
+        self._config_entry = config_entry
+        self._attr_has_entity_name = False
+        self._attr_name = "Plan lekcji"
+        self._attr_unique_id = f"{config_entry.entry_id}_plan_lekcji"
+        self._attr_icon = "mdi:timetable"
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        return _device_info(self.coordinator, self._config_entry)
+
+    def _plan(self) -> List[Dict]:
+        return (self.coordinator.data or {}).get("plan_lekcji", [])
+
+    @property
+    def native_value(self) -> int:
+        """Liczba lekcji zaplanowanych na dzisiaj."""
+        return len(lekcje_dnia(self._plan(), dt_util.now().date()))
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        plan = self._plan()
+        dzis = dt_util.now().date()
+        dzisiaj = lekcje_dnia(plan, dzis)
+
+        # Ograniczamy atrybut do najblizszych 7 dni - pelne dwa tygodnie
+        # niepotrzebnie rozdymaja stan encji zapisywany przez recorder.
+        okno = [
+            l for l in plan
+            if dzis.strftime("%Y-%m-%d") <= l["data"] <= (dzis + timedelta(days=6)).strftime("%Y-%m-%d")
+        ]
+        zmiany = [l for l in okno if l["zastepstwo"] or l["odwolana"]]
+
+        return {
+            "dzisiaj": dzisiaj,
+            "jutro": lekcje_dnia(plan, dzis + timedelta(days=1)),
+            "tydzien": pogrupuj_wg_dni(okno),
+            "liczba_lekcji_dzisiaj": len(dzisiaj),
+            "pierwsza_lekcja": dzisiaj[0]["od"] if dzisiaj else None,
+            "ostatnia_lekcja": dzisiaj[-1]["do"] if dzisiaj else None,
+            "zmiany": zmiany,
+            "sa_zmiany": bool(zmiany),
+        }
+
+
+class LibrusNastepnaLekcjaSensor(CoordinatorEntity, SensorEntity):
+    """Czujnik z trwajaca lub najblizsza lekcja.
+
+    Koordynator odswieza dane co kilka godzin, wiec czujnik dodatkowo przelicza
+    swoj stan co minute - wylacznie lokalnie, bez odpytywania Librusa.
+    """
+
+    def __init__(self, coordinator: LibrusDataUpdateCoordinator, config_entry: ConfigEntry) -> None:
+        """Inicjalizacja."""
+        super().__init__(coordinator)
+        self._config_entry = config_entry
+        self._attr_has_entity_name = False
+        self._attr_name = "Nastepna lekcja"
+        self._attr_unique_id = f"{config_entry.entry_id}_nastepna_lekcja"
+        self._attr_icon = "mdi:clock-start"
+
+    async def async_added_to_hass(self) -> None:
+        """Uruchom cykliczne przeliczanie stanu."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._async_przelicz, timedelta(minutes=1)
+            )
+        )
+
+    @callback
+    def _async_przelicz(self, _now) -> None:
+        """Zapisz stan ponownie, aby odswiezyc odliczanie do lekcji."""
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        return _device_info(self.coordinator, self._config_entry)
+
+    def _lekcja(self) -> Optional[Dict]:
+        plan = (self.coordinator.data or {}).get("plan_lekcji", [])
+        # Godziny z Librusa sa lokalne i bez strefy - porownujemy je z lokalnym
+        # czasem HA pozbawionym tzinfo.
+        teraz = dt_util.now().replace(tzinfo=None)
+        return nastepna_lekcja(plan, teraz)
+
+    @property
+    def native_value(self) -> Optional[str]:
+        lekcja = self._lekcja()
+        return lekcja["przedmiot"] if lekcja else None
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        lekcja = self._lekcja()
+        if not lekcja:
+            return {}
+        return {
+            "data": lekcja["data"],
+            "dzien_tygodnia": lekcja["dzien_tygodnia"],
+            "numer": lekcja["numer"],
+            "od": lekcja["od"],
+            "do": lekcja["do"],
+            "nauczyciel_sala": lekcja["nauczyciel_sala"],
+            "za_minut": lekcja["za_minut"],
+            "trwa_teraz": lekcja["trwa_teraz"],
+            "zastepstwo": lekcja["zastepstwo"],
+            "info": lekcja["info"],
         }
 
 
