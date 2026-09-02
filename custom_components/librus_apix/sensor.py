@@ -17,7 +17,13 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .const import DOMAIN, SCAN_INTERVAL
-from .plan_lekcji import lekcje_dnia, nastepna_lekcja, pogrupuj_wg_dni
+from .plan_lekcji import (
+    biezacy_dzien,
+    dni_do_wyswietlenia,
+    lekcje_dnia,
+    nastepna_lekcja,
+    polacz_z_wydarzeniami,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -365,6 +371,15 @@ def _device_info(coordinator: DataUpdateCoordinator, config_entry: ConfigEntry) 
     }
 
 
+def _lekcja_do_atrybutu(lekcja: Dict[str, Any]) -> Dict[str, Any]:
+    """Okrojona lekcja do atrybutu encji.
+
+    Pomijamy godziny przerw - nie uzywa ich zadna karta, a przy pelnym tygodniu
+    to setki bajtow zblizajacych stan do limitu recordera (16 KB).
+    """
+    return {k: v for k, v in lekcja.items() if k not in ("przerwa_od", "przerwa_do")}
+
+
 class LibrusUczenSensor(CoordinatorEntity, SensorEntity):
     """Czujnik z informacjami o uczniu."""
 
@@ -671,7 +686,33 @@ class LibrusZadaniaSensor(CoordinatorEntity, SensorEntity):
         }
 
 
-class LibrusPlanLekcjiSensor(CoordinatorEntity, SensorEntity):
+class _OdswiezanieCominutowe:
+    """Przelicza stan encji co minute, lokalnie i bez odpytywania Librusa.
+
+    Koordynator odswieza dane co kilka godzin, a oba czujniki planu zaleza od
+    biezacego czasu (trwajaca lekcja, dzien do pokazania). Home Assistant nie
+    zapisuje stanu, gdy nic sie nie zmienilo, wiec jest to tanie.
+    """
+
+    async def async_added_to_hass(self) -> None:
+        """Uruchom cykliczne przeliczanie stanu."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._async_przelicz, timedelta(minutes=1)
+            )
+        )
+
+    @callback
+    def _async_przelicz(self, _now) -> None:
+        self.async_write_ha_state()
+
+    def _teraz(self) -> datetime:
+        """Lokalny czas HA bez strefy - godziny z Librusa tez sa lokalne."""
+        return dt_util.now().replace(tzinfo=None)
+
+
+class LibrusPlanLekcjiSensor(_OdswiezanieCominutowe, CoordinatorEntity, SensorEntity):
     """Czujnik z planem lekcji (biezacy i nastepny tydzien)."""
 
     def __init__(self, coordinator: LibrusDataUpdateCoordinator, config_entry: ConfigEntry) -> None:
@@ -693,13 +734,14 @@ class LibrusPlanLekcjiSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Liczba lekcji zaplanowanych na dzisiaj."""
-        return len(lekcje_dnia(self._plan(), dt_util.now().date()))
+        return len(lekcje_dnia(self._plan(), self._teraz().date()))
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
+        dane = self.coordinator.data or {}
         plan = self._plan()
-        dzis = dt_util.now().date()
-        dzisiaj = lekcje_dnia(plan, dzis)
+        teraz = self._teraz()
+        dzis = teraz.date()
 
         # Ograniczamy atrybut do najblizszych 7 dni - pelne dwa tygodnie
         # niepotrzebnie rozdymaja stan encji zapisywany przez recorder.
@@ -707,12 +749,32 @@ class LibrusPlanLekcjiSensor(CoordinatorEntity, SensorEntity):
             l for l in plan
             if dzis.strftime("%Y-%m-%d") <= l["data"] <= (dzis + timedelta(days=6)).strftime("%Y-%m-%d")
         ]
-        zmiany = [l for l in okno if l["zastepstwo"] or l["odwolana"]]
+        okno, wydarzenia_dnia, zadania_dnia = polacz_z_wydarzeniami(
+            okno, dane.get("terminarz"), dane.get("zadania")
+        )
 
+        # Dzien znika, gdy skonczy sie jego ostatnia lekcja - ta sama zasada
+        # rzadzi wyborem dnia do pokazania i zawartoscia planu tygodnia.
+        tydzien = dni_do_wyswietlenia(okno, teraz)
+        biezacy = biezacy_dzien(okno, teraz)
+        dzisiaj = lekcje_dnia(okno, dzis)
+        zmiany = [
+            _lekcja_do_atrybutu(l) for lekcje in tydzien.values() for l in lekcje
+            if l["zastepstwo"] or l["odwolana"]
+        ]
+
+        # Recorder w HA odrzuca stan powyzej 16 KB atrybutow, dlatego lekcje
+        # wystawiamy tylko raz - w "tydzien". Dzien do pokazania wskazuje
+        # "biezacy_dzien_data", czyli klucz w tym samym slowniku.
         return {
-            "dzisiaj": dzisiaj,
-            "jutro": lekcje_dnia(plan, dzis + timedelta(days=1)),
-            "tydzien": pogrupuj_wg_dni(okno),
+            "tydzien": {
+                data: [_lekcja_do_atrybutu(l) for l in lekcje]
+                for data, lekcje in tydzien.items()
+            },
+            "biezacy_dzien_data": biezacy[0]["data"] if biezacy else None,
+            "biezacy_dzien_nazwa": biezacy[0]["dzien_tygodnia"] if biezacy else None,
+            "wydarzenia_dnia": wydarzenia_dnia,
+            "zadania_dnia": zadania_dnia,
             "liczba_lekcji_dzisiaj": len(dzisiaj),
             "pierwsza_lekcja": dzisiaj[0]["od"] if dzisiaj else None,
             "ostatnia_lekcja": dzisiaj[-1]["do"] if dzisiaj else None,
@@ -721,12 +783,8 @@ class LibrusPlanLekcjiSensor(CoordinatorEntity, SensorEntity):
         }
 
 
-class LibrusNastepnaLekcjaSensor(CoordinatorEntity, SensorEntity):
-    """Czujnik z trwajaca lub najblizsza lekcja.
-
-    Koordynator odswieza dane co kilka godzin, wiec czujnik dodatkowo przelicza
-    swoj stan co minute - wylacznie lokalnie, bez odpytywania Librusa.
-    """
+class LibrusNastepnaLekcjaSensor(_OdswiezanieCominutowe, CoordinatorEntity, SensorEntity):
+    """Czujnik z trwajaca lub najblizsza lekcja."""
 
     def __init__(self, coordinator: LibrusDataUpdateCoordinator, config_entry: ConfigEntry) -> None:
         """Inicjalizacja."""
@@ -737,30 +795,13 @@ class LibrusNastepnaLekcjaSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"{config_entry.entry_id}_nastepna_lekcja"
         self._attr_icon = "mdi:clock-start"
 
-    async def async_added_to_hass(self) -> None:
-        """Uruchom cykliczne przeliczanie stanu."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            async_track_time_interval(
-                self.hass, self._async_przelicz, timedelta(minutes=1)
-            )
-        )
-
-    @callback
-    def _async_przelicz(self, _now) -> None:
-        """Zapisz stan ponownie, aby odswiezyc odliczanie do lekcji."""
-        self.async_write_ha_state()
-
     @property
     def device_info(self) -> Dict[str, Any]:
         return _device_info(self.coordinator, self._config_entry)
 
     def _lekcja(self) -> Optional[Dict]:
         plan = (self.coordinator.data or {}).get("plan_lekcji", [])
-        # Godziny z Librusa sa lokalne i bez strefy - porownujemy je z lokalnym
-        # czasem HA pozbawionym tzinfo.
-        teraz = dt_util.now().replace(tzinfo=None)
-        return nastepna_lekcja(plan, teraz)
+        return nastepna_lekcja(plan, self._teraz())
 
     @property
     def native_value(self) -> Optional[str]:
