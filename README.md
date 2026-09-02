@@ -40,14 +40,14 @@ Sensory średnich mają `state_class: measurement` — HA automatycznie rysuje d
 
 Kliknij poniższy przycisk, aby automatycznie dodać repozytorium do HACS z właściwą kategorią:
 
-[![Otwórz w HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=LukMaverick&repository=LibrusSynergiaHA&category=integration)
+[![Otwórz w HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=JareckiB12&repository=LibrusSynergiaHA&category=integration)
 
 Lub ręcznie:
 
 1. Otwórz HACS w Home Assistant
 2. Kliknij trzy kropki (⋮) w prawym górnym rogu
 3. Wybierz **"Custom repositories"**
-4. W polu URL wpisz dokładnie: `https://github.com/LukMaverick/LibrusSynergiaHA`  
+4. W polu URL wpisz dokładnie: `https://github.com/JareckiB12/LibrusSynergiaHA`  
    ⚠️ **Bez `.git` na końcu!**
 5. W polu **Category** wybierz: **`Integration`**  
    ⚠️ **NIE wybieraj "AppDaemon", "Plugin" ani żadnej innej opcji!**
@@ -599,7 +599,7 @@ automation:
 ### Setup środowiska deweloperskiego
 ```bash
 # Klonuj repozytorium
-git clone https://github.com/twoje-username/librus-ha-integration
+git clone https://github.com/JareckiB12/LibrusSynergiaHA
 cd librus-ha-integration
 
 # Uruchom środowisko testowe
@@ -641,13 +641,42 @@ Jeśli znajdziesz błąd:
    - Krokami do reprodukcji
    - Logami (usuń dane osobowe!)
 
-## 📄 Licencja
+## 📄 Licencja i uznanie autorstwa
 
-MIT License - patrz [LICENSE](LICENSE)
+Ten projekt jest udostępniany na licencji **MIT** — pełny tekst w pliku
+[LICENSE](LICENSE).
+
+### Projekt źródłowy
+
+To repozytorium jest **forkiem** [LukMaverick/LibrusSynergiaHA](https://github.com/LukMaverick/LibrusSynergiaHA)
+(licencja MIT). Zgodnie z warunkami MIT oryginalna nota o prawach autorskich
+została zachowana w pliku `LICENSE`; nota dotycząca zmian w forku jest dopisana
+obok, a nie zamiast niej.
+
+Fork dodaje: plan lekcji, oznaczanie wydarzeń z terminarza i prac domowych
+na kartach, kartę nadchodzących wydarzeń oraz konfigurację częstotliwości
+odświeżania w UI.
+
+### Komponenty zewnętrzne
+
+Poniższe składniki **nie są dystrybuowane razem z tym repozytorium** — Home
+Assistant lub HACS pobierają je osobno. Wymieniamy je dla przejrzystości:
+
+| Komponent | Licencja | Autor | Sposób użycia |
+|-----------|----------|-------|----------------|
+| [librus-apix](https://github.com/poroknights/librus-apix) | MIT | Pascal Jodłowski | zależność `pip`, deklarowana w `manifest.json` |
+| [Mushroom Cards](https://github.com/piitaya/lovelace-mushroom) | Apache-2.0 | piitaya | opcjonalny dodatek frontendu, instalowany z HACS |
+| [Home Assistant](https://github.com/home-assistant/core) | Apache-2.0 | Nabu Casa i społeczność | środowisko uruchomieniowe integracji |
+
+Integracja komunikuje się z systemem **Librus Synergia**. Projekt nie jest
+powiązany z firmą Librus ani przez nią wspierany; nazwa użyta wyłącznie
+w celach identyfikacyjnych.
 
 ## 🤝 Wkład
 
-Pull requesty są mile widziane! Sprawdź [CONTRIBUTING.md](CONTRIBUTING.md)
+Pull requesty są mile widziane — zgłoś je przez
+[Issues](https://github.com/JareckiB12/LibrusSynergiaHA/issues) lub bezpośrednio
+jako PR.
 
 ### 🙏 Podziękowania
 
@@ -655,7 +684,7 @@ Specjalne podziękowania dla **KB** za wsparcie i pomoc w rozwoju projektu.
 
 ## 👨‍💻 Autor
 
-Stworzono na bazie biblioteki [librus-apix](https://github.com/RustySnek/librus-apix)
+Stworzono na bazie biblioteki [librus-apix](https://github.com/poroknights/librus-apix)
 
 ---
 
