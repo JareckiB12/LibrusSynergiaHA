@@ -69,7 +69,7 @@ def test_przetworz_plan_tlumaczy_dzien_i_sortuje():
         ("2026-09-07", 3),
         ("2026-09-08", 2),
     ]
-    assert plan[0]["dzien_tygodnia"] == "Poniedzialek"
+    assert plan[0]["dzien_tygodnia"] == "Poniedziałek"
     assert plan[-1]["dzien_tygodnia"] == "Wtorek"
 
 

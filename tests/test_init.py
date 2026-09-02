@@ -22,7 +22,7 @@ def _lekcja(numer, przedmiot, od, do, dzien=None, zastepstwo=False, odwolana=Fal
     dzien = dzien or date.today()
     return {
         "data": dzien.strftime("%Y-%m-%d"),
-        "dzien_tygodnia": "Poniedzialek",
+        "dzien_tygodnia": "Poniedziałek",
         "numer": numer,
         "przedmiot": przedmiot,
         "nauczyciel_sala": "12",
