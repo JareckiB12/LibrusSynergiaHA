@@ -328,3 +328,45 @@ def test_polaczenie_bez_danych_nie_psuje_planu():
     assert len(plan) == 3
     assert all(l["wydarzenia"] == [] and l["zadania"] == [] for l in plan)
     assert dnia == {} and zadania_dnia == {}
+
+
+def test_dni_do_wyswietlenia_ogranicza_liczbe_dni():
+    plan = przetworz_plan(
+        [
+            tydzien(
+                *[
+                    period(date_=f"2026-09-{7 + i:02d}", number=1, date_from="08:00",
+                           date_to="08:45", weekday="Monday")
+                    for i in range(6)
+                ]
+            )
+        ]
+    )
+
+    dni = dni_do_wyswietlenia(plan, datetime(2026, 9, 7, 7, 0), 5)
+
+    assert len(dni) == 5
+    assert list(dni)[0] == "2026-09-07"
+    assert list(dni)[-1] == "2026-09-11"
+
+
+def test_limit_liczony_po_odfiltrowaniu_zakonczonych_dni():
+    """Zakonczony dzien nie zajmuje miejsca w limicie."""
+    plan = przetworz_plan(
+        [
+            tydzien(
+                *[
+                    period(date_=f"2026-09-{7 + i:02d}", number=1, date_from="08:00",
+                           date_to="08:45", weekday="Monday")
+                    for i in range(6)
+                ]
+            )
+        ]
+    )
+
+    # Po ostatniej lekcji 07.09 pierwszy dzien wypada, wiec dochodzi 12.09.
+    dni = dni_do_wyswietlenia(plan, datetime(2026, 9, 7, 9, 0), 5)
+
+    assert len(dni) == 5
+    assert list(dni)[0] == "2026-09-08"
+    assert list(dni)[-1] == "2026-09-12"

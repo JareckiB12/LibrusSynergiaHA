@@ -148,18 +148,27 @@ def _koniec_dnia(lekcje: List[Dict[str, Any]]) -> Optional[datetime]:
 
 
 def dni_do_wyswietlenia(
-    plan: List[Dict[str, Any]], teraz: datetime
+    plan: List[Dict[str, Any]],
+    teraz: datetime,
+    maks_dni: Optional[int] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Dni, ktorych ostatnia lekcja jeszcze sie nie skonczyla.
 
     Dzien bez czytelnych godzin zostaje zachowany - lepiej pokazac za duzo
     niz ukryc dane, ktorych nie umiemy zinterpretowac.
+
+    Args:
+        maks_dni: ogranicz wynik do tylu pierwszych dni. Dzieki temu karta
+            pokazuje zawsze tyle samo dni, niezaleznie od tego, czy dzisiejsze
+            lekcje juz sie skonczyly.
     """
     wynik: Dict[str, List[Dict[str, Any]]] = {}
     for data, lekcje in pogrupuj_wg_dni(plan).items():
         koniec = _koniec_dnia(lekcje)
         if koniec is None or koniec > teraz:
             wynik[data] = lekcje
+            if maks_dni is not None and len(wynik) >= maks_dni:
+                break
     return wynik
 
 
