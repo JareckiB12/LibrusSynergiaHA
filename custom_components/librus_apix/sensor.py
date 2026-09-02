@@ -16,7 +16,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .const import DOMAIN, SCAN_INTERVAL
+from .const import DEFAULT_PLAN_DAYS, DOMAIN, SCAN_INTERVAL
 from .plan_lekcji import (
     biezacy_dzien,
     dni_do_wyswietlenia,
@@ -743,11 +743,13 @@ class LibrusPlanLekcjiSensor(_OdswiezanieCominutowe, CoordinatorEntity, SensorEn
         teraz = self._teraz()
         dzis = teraz.date()
 
-        # Ograniczamy atrybut do najblizszych 7 dni - pelne dwa tygodnie
-        # niepotrzebnie rozdymaja stan encji zapisywany przez recorder.
+        # Osiem dni kalendarzowych zawsze zawiera co najmniej DEFAULT_PLAN_DAYS
+        # dni roboczych - takze wtedy, gdy dzisiejsze lekcje juz sie skonczyly
+        # i dzisiaj wypada z planu. Pelne dwa tygodnie niepotrzebnie rozdymaja
+        # stan encji zapisywany przez recorder.
         okno = [
             l for l in plan
-            if dzis.strftime("%Y-%m-%d") <= l["data"] <= (dzis + timedelta(days=6)).strftime("%Y-%m-%d")
+            if dzis.strftime("%Y-%m-%d") <= l["data"] <= (dzis + timedelta(days=7)).strftime("%Y-%m-%d")
         ]
         okno, wydarzenia_dnia, zadania_dnia = polacz_z_wydarzeniami(
             okno, dane.get("terminarz"), dane.get("zadania")
@@ -755,7 +757,7 @@ class LibrusPlanLekcjiSensor(_OdswiezanieCominutowe, CoordinatorEntity, SensorEn
 
         # Dzien znika, gdy skonczy sie jego ostatnia lekcja - ta sama zasada
         # rzadzi wyborem dnia do pokazania i zawartoscia planu tygodnia.
-        tydzien = dni_do_wyswietlenia(okno, teraz)
+        tydzien = dni_do_wyswietlenia(okno, teraz, DEFAULT_PLAN_DAYS)
         biezacy = biezacy_dzien(okno, teraz)
         dzisiaj = lekcje_dnia(okno, dzis)
         zmiany = [

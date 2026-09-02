@@ -445,11 +445,13 @@ content: |-
 
 **Dzień znika, gdy skończy się jego ostatnia lekcja.** Po ostatniej lekcji dnia karta
 przechodzi na najbliższy kolejny dzień z zajęciami, a plan tygodnia przestaje pokazywać
-dni już zakończone. Tę samą zasadę stosuje atrybut `zmiany` — zastępstwo z lekcji,
+dni już zakończone — i **dobiera kolejny dzień w jego miejsce**, więc widać zawsze 5 dni
+lekcyjnych, a nie 4 po południu. Liczbę dni zmienisz stałą `DEFAULT_PLAN_DAYS`
+w `const.py`. Tę samą zasadę stosuje atrybut `zmiany` — zastępstwo z lekcji,
 która już się odbyła, nie jest raportowane.
 
-Atrybut `tydzien` (słownik `data → lekcje`) zawiera najbliższe 7 dni i jest **jedynym
-miejscem z listą lekcji** — recorder w Home Assistant odrzuca stan encji powyżej 16 KB
+Atrybut `tydzien` (słownik `data → lekcje`) zawiera **zawsze 5 najbliższych dni
+lekcyjnych** i jest **jedynym miejscem z listą lekcji** — recorder w Home Assistant odrzuca stan encji powyżej 16 KB
 atrybutów, więc lekcje nie są duplikowane. Dzień do wyświetlenia wskazują
 `biezacy_dzien_data` i `biezacy_dzien_nazwa`; karta pobiera lekcje przez
 `tydzien[biezacy_dzien_data]`. Czujnik przelicza to co minutę lokalnie, bez odpytywania

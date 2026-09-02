@@ -234,3 +234,28 @@ async def test_plan_lekcji_zaznacza_wydarzenia_i_zadania(
 
     calodniowe = stan.attributes["wydarzenia_dnia"][dzis]
     assert [w["przedmiot"] for w in calodniowe] == ["Wywiadówka: zebranie rodziców"]
+
+
+async def test_plan_tygodnia_zawsze_pokazuje_piec_dni(
+    hass: HomeAssistant, mock_config_entry, mock_librus_client
+):
+    """Po ostatniej lekcji dnia w planie nadal jest piec dni lekcyjnych."""
+    dzis = date.today()
+    # Dzisiejsze lekcje juz sie skonczyly, kolejne szesc dni ma zajecia.
+    plan = [_lekcja(1, "matematyka", "00:00", "00:01")]
+    for i in range(1, 7):
+        plan.append(
+            _lekcja(1, f"przedmiot{i}", "08:00", "08:45", dzien=dzis + timedelta(days=i))
+        )
+    mock_librus_client.async_get_timetable.return_value = plan
+
+    await _setup(hass, mock_config_entry, mock_librus_client)
+
+    stan = hass.states.get("sensor.librus_jan_kowalski_plan_lekcji")
+    tydzien = stan.attributes["tydzien"]
+
+    assert len(tydzien) == 5, f"oczekiwano 5 dni, jest {len(tydzien)}: {list(tydzien)}"
+    # Zakonczone dzis nie zajmuje miejsca w limicie.
+    assert dzis.strftime("%Y-%m-%d") not in tydzien
+    assert list(tydzien)[0] == (dzis + timedelta(days=1)).strftime("%Y-%m-%d")
+    assert list(tydzien)[-1] == (dzis + timedelta(days=5)).strftime("%Y-%m-%d")
