@@ -16,7 +16,12 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .const import DEFAULT_PLAN_DAYS, DOMAIN, SCAN_INTERVAL
+from .const import (
+    CONF_SCAN_INTERVAL_MINUTES,
+    DEFAULT_PLAN_DAYS,
+    DEFAULT_SCAN_INTERVAL_MINUTES,
+    DOMAIN,
+)
 from .plan_lekcji import (
     biezacy_dzien,
     dni_do_wyswietlenia,
@@ -26,6 +31,18 @@ from .plan_lekcji import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _interwal_odswiezania(config_entry: ConfigEntry) -> timedelta:
+    """Odczytaj czestotliwosc odpytywania Librusa z opcji integracji."""
+    minuty = config_entry.options.get(
+        CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES
+    )
+    try:
+        minuty = int(minuty)
+    except (TypeError, ValueError):
+        minuty = DEFAULT_SCAN_INTERVAL_MINUTES
+    return timedelta(minutes=max(1, minuty))
 
 
 def _jest_nowa(date_str: str) -> bool:
@@ -75,7 +92,9 @@ async def async_setup_entry(
     """Konfiguracja platformy czujnikow Librus APIX."""
     client = hass.data[DOMAIN][config_entry.entry_id]
 
-    coordinator = LibrusDataUpdateCoordinator(hass, client)
+    coordinator = LibrusDataUpdateCoordinator(
+        hass, client, _interwal_odswiezania(config_entry)
+    )
     await coordinator.async_config_entry_first_refresh()
 
     entities: List[SensorEntity] = [
@@ -110,7 +129,12 @@ EVENT_ZMIANA_PLANU = f"{DOMAIN}_zmiana_planu"
 class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
     """Klasa zarzadzajaca pobieraniem danych z Librus."""
 
-    def __init__(self, hass: HomeAssistant, client: Any) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client: Any,
+        update_interval: timedelta,
+    ) -> None:
         """Inicjalizacja koordynatora."""
         self.client = client
         self._seen_message_hrefs: set = set()
@@ -123,7 +147,7 @@ class LibrusDataUpdateCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=SCAN_INTERVAL,
+            update_interval=update_interval,
         )
 
     async def _async_update_data(self) -> Dict[str, Any]:

@@ -259,3 +259,82 @@ async def test_plan_tygodnia_zawsze_pokazuje_piec_dni(
     assert dzis.strftime("%Y-%m-%d") not in tydzien
     assert list(tydzien)[0] == (dzis + timedelta(days=1)).strftime("%Y-%m-%d")
     assert list(tydzien)[-1] == (dzis + timedelta(days=5)).strftime("%Y-%m-%d")
+
+
+async def test_domyslny_interwal_odswiezania(
+    hass: HomeAssistant, mock_config_entry, mock_librus_client
+):
+    """Bez opcji koordynator odswieza sie co 2 godziny."""
+    from custom_components.librus_apix.sensor import _interwal_odswiezania
+
+    await _setup(hass, mock_config_entry, mock_librus_client)
+
+    assert _interwal_odswiezania(mock_config_entry) == timedelta(hours=2)
+
+
+async def test_interwal_z_opcji_integracji(
+    hass: HomeAssistant, mock_config_entry, mock_librus_client
+):
+    """Opcja z UI zmienia czestotliwosc odpytywania Librusa."""
+    from custom_components.librus_apix.sensor import _interwal_odswiezania
+
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"scan_interval_minutes": 30}
+    )
+
+    assert _interwal_odswiezania(mock_config_entry) == timedelta(minutes=30)
+
+
+async def test_interwal_zapisany_jako_float(
+    hass: HomeAssistant, mock_config_entry
+):
+    """NumberSelector zapisuje liczbe zmiennoprzecinkowa (45.0), nie int."""
+    from custom_components.librus_apix.sensor import _interwal_odswiezania
+
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"scan_interval_minutes": 45.0}
+    )
+
+    assert _interwal_odswiezania(mock_config_entry) == timedelta(minutes=45)
+
+
+async def test_interwal_odporny_na_smieciowa_wartosc(
+    hass: HomeAssistant, mock_config_entry
+):
+    """Nieparsowalna wartosc nie wywala integracji - wracamy do domyslnej."""
+    from custom_components.librus_apix.sensor import _interwal_odswiezania
+
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"scan_interval_minutes": "abc"}
+    )
+
+    assert _interwal_odswiezania(mock_config_entry) == timedelta(hours=2)
+
+
+async def test_koordynator_uzywa_interwalu_z_opcji(
+    hass: HomeAssistant, mock_config_entry, mock_librus_client
+):
+    """Interwal z opcji trafia do koordynatora przy konfiguracji platformy."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"scan_interval_minutes": 45}
+    )
+    with patch("custom_components.librus_apix.LibrusApiClient", return_value=mock_librus_client):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Koordynator jest wspoldzielony przez wszystkie encje platformy.
+    from homeassistant.helpers import entity_registry as er
+    rejestr = er.async_get(hass)
+    encje = er.async_entries_for_config_entry(rejestr, mock_config_entry.entry_id)
+    assert encje, "brak encji - platforma sie nie skonfigurowala"
+
+    komponent = hass.data["entity_components"]["sensor"]
+    encja = next(
+        e for e in komponent.entities
+        if e.entity_id.endswith("_plan_lekcji")
+    )
+    assert encja.coordinator.update_interval == timedelta(minutes=45)
