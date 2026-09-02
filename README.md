@@ -641,13 +641,29 @@ Jeśli znajdziesz błąd:
    - Krokami do reprodukcji
    - Logami (usuń dane osobowe!)
 
-## 📄 Licencja
+## 📄 Licencja i komponenty zewnętrzne
 
-MIT License - patrz [LICENSE](LICENSE)
+Projekt jest udostępniany na licencji **MIT** — pełny tekst w pliku
+[LICENSE](LICENSE).
+
+Poniższe składniki **nie są dystrybuowane razem z tym repozytorium** — Home
+Assistant lub HACS pobierają je osobno. Wymieniamy je dla przejrzystości:
+
+| Komponent | Licencja | Autor | Sposób użycia |
+|-----------|----------|-------|----------------|
+| [librus-apix](https://github.com/poroknights/librus-apix) | MIT | Pascal Jodłowski | zależność `pip`, deklarowana w `manifest.json` |
+| [Mushroom Cards](https://github.com/piitaya/lovelace-mushroom) | Apache-2.0 | piitaya | opcjonalny dodatek frontendu, instalowany z HACS |
+| [Home Assistant](https://github.com/home-assistant/core) | Apache-2.0 | Nabu Casa i społeczność | środowisko uruchomieniowe integracji |
+
+Integracja komunikuje się z systemem **Librus Synergia**. Projekt nie jest
+powiązany z firmą Librus ani przez nią wspierany; nazwa użyta wyłącznie
+w celach identyfikacyjnych.
 
 ## 🤝 Wkład
 
-Pull requesty są mile widziane! Sprawdź [CONTRIBUTING.md](CONTRIBUTING.md)
+Pull requesty są mile widziane — zgłoś je przez
+[Issues](https://github.com/LukMaverick/LibrusSynergiaHA/issues) lub bezpośrednio
+jako PR.
 
 ### 🙏 Podziękowania
 
@@ -655,7 +671,7 @@ Specjalne podziękowania dla **KB** za wsparcie i pomoc w rozwoju projektu.
 
 ## 👨‍💻 Autor
 
-Stworzono na bazie biblioteki [librus-apix](https://github.com/RustySnek/librus-apix)
+Stworzono na bazie biblioteki [librus-apix](https://github.com/poroknights/librus-apix)
 
 ---
 
