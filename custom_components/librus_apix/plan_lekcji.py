@@ -8,12 +8,13 @@ from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 # Nazwy dni tygodnia zwracane przez librus_apix.timetable.Period.weekday
+# Wartosci trafiaja wprost na karty, wiec z polskimi znakami.
 DNI_TYGODNIA_PL = {
-    "Monday": "Poniedzialek",
+    "Monday": "Poniedzia\u0142ek",
     "Tuesday": "Wtorek",
-    "Wednesday": "Sroda",
+    "Wednesday": "\u015aroda",
     "Thursday": "Czwartek",
-    "Friday": "Piatek",
+    "Friday": "Pi\u0105tek",
     "Saturday": "Sobota",
     "Sunday": "Niedziela",
 }

@@ -185,6 +185,76 @@ Legenda ikon:
 - ⚫ szara = przeczytana
 - 📎 badge = ma załącznik
 
+### Złożenie kart w widok jednokolumnowy
+
+Trzy karty poniżej dobrze czytają się jedna pod drugą, w kolejności:
+**Nadchodzące wydarzenia → Plan lekcji → Plan tygodnia**.
+
+> **Uwaga:** `max_columns: 1` w widoku **nie zadziała**. Domyślny widok Lovelace
+> (masonry) ma puste `setConfig()` i liczy kolumny wyłącznie z szerokości ekranu,
+> ignorując konfigurację. Jedyny pewny sposób na jedną kolumnę to opakowanie
+> wszystkiego w pojedynczy `vertical-stack` — widok dostaje wtedy jedną kartę,
+> więc nie ma czego rozkładać na kolumny.
+
+```yaml
+views:
+  - title: Plan lekcji
+    path: plan
+    icon: mdi:timetable
+    cards:
+      - type: vertical-stack
+        cards:
+          # 1. wklej tu zawartość karty "Nadchodzące wydarzenia"
+          # 2. potem kartę "Plan lekcji (Mushroom)"
+          # 3. na końcu kartę "Plan tygodnia"
+```
+
+Karty „Nadchodzące wydarzenia" i „Plan lekcji" same są `vertical-stack` —
+zagnieżdżanie stosów jest w Lovelace poprawne, wklejasz je bez zmian.
+
+### Karta nadchodzących wydarzeń (4 tygodnie)
+
+> Korzysta z sensora `terminarz`, który pobiera bieżący i następny miesiąc.
+> **4 tygodnie to maksimum, jakie ten sensor gwarantuje.** Najkrótszy możliwy
+> horyzont wypada 31 stycznia (do 28 lutego) i wynosi dokładnie 28 dni — dłuższy
+> okres po cichu urywałby się na końcu następnego miesiąca.
+
+```yaml
+type: vertical-stack
+cards:
+  - type: custom:mushroom-title-card
+    title: 📅 Nadchodzące wydarzenia
+    subtitle: >-
+      {% set z = state_attr('sensor.librus_imie_nazwisko_terminarz', 'zdarzenia') or [] %}
+      {% set do = (now() + timedelta(days=28)).strftime('%Y-%m-%d') %}
+      {% set n = z | selectattr('data', 'le', do) | list | count %}
+      {% set r = n % 10 %}{% set s = n % 100 %}
+      {% if n == 0 %}Najbliższe 4 tygodnie bez wydarzeń{% else %}{{ n }}
+      {% if n == 1 %}wydarzenie{% elif r in [2, 3, 4] and s not in [12, 13, 14] %}wydarzenia{% else %}wydarzeń{% endif %}
+      w najbliższych 4 tygodniach{% endif %}
+
+  - type: markdown
+    content: |-
+      {%- set wszystkie = state_attr('sensor.librus_imie_nazwisko_terminarz', 'zdarzenia') or [] %}
+      {%- set do = (now() + timedelta(days=28)).strftime('%Y-%m-%d') %}
+      {%- set zdarzenia = wszystkie | selectattr('data', 'le', do) | list %}
+      {%- set testy = ['sprawdzian', 'kartkówka', 'klasówka', 'praca klasowa'] %}
+      {%- if zdarzenia %}
+      | Data | Dzień | Wydarzenie | Przedmiot | Szczegóły |
+      |------|-------|------------|-----------|-----------|
+      {%- for z in zdarzenia %}
+      {%- set k = '#e53935' if z.tytul | lower in testy else '' %}
+      {%- set opis = z.szczegoly.Opis if z.szczegoly.Opis not in [none, '', 'unknown'] else '' %}
+      | {% if k %}<font color="{{ k }}">**{% endif %}{{ z.data }}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{{ z.tydzien }}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{{ z.tytul }}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{{ z.przedmiot }}{% if k %}**</font>{% endif %} | {{ opis }}{% if z.godzina not in ['', 'unknown', none] %}{% if opis %} · {% endif %}{{ z.godzina }}{% endif %} |
+      {%- endfor %}
+      {%- else %}
+      Brak wydarzeń w najbliższych 4 tygodniach.
+      {%- endif %}
+```
+
+Sprawdziany i kartkówki są <font color="#e53935">**czerwone i pogrubione**</font> —
+tak samo jak w planie lekcji. Horyzont skrócisz podmieniając `days=28` — zwiększać nie ma sensu (patrz uwaga wyżej).
+
 ### Karta terminarza (wszystkie zdarzenia)
 
 > Znajdź nazwę encji w **Developer Tools → States** (szukaj `terminarz`).
@@ -315,7 +385,8 @@ cards:
       | # | Godzina | Przedmiot | Sala |
       |---|---------|-----------|------|
       {%- for l in lekcje %}
-      | {{ l.numer }} | {{ l.od }}–{{ l.do }} | {% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo %}**{{ l.przedmiot }}** ⚠️{% else %}{{ l.przedmiot }}{% endif %}{% for w in l.wydarzenia %} 📝 {{ w.tytul }}{% endfor %}{% for z in l.zadania %} 📚 {{ z.kategoria }}{% endfor %} | {{ l.nauczyciel_sala }} |
+      {%- set k = '#e53935' if l.wydarzenia else ('#f9a825' if l.zadania else '') %}
+      | {% if k %}<font color="{{ k }}">**{% endif %}{{ l.numer }}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{{ l.od }}–{{ l.do }}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo and not k %}**{{ l.przedmiot }}** ⚠️{% elif l.zastepstwo %}{{ l.przedmiot }} ⚠️{% else %}{{ l.przedmiot }}{% endif %}{% for w in l.wydarzenia %} 📝 {{ w.tytul }}{% endfor %}{% for z in l.zadania %} 📚 {{ z.kategoria }}{% endfor %}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{{ l.nauczyciel_sala }}{% if k %}**</font>{% endif %} |
       {%- endfor %}
       {%- else %}
       Brak nadchodzących lekcji.
@@ -329,6 +400,14 @@ Legenda:
 - 📝 przy przedmiocie = wydarzenie z terminarza (sprawdzian, kartkówka)
 - 📚 przy przedmiocie = praca domowa na ten dzień
 - 📌 nad tabelą = wydarzenie całodniowe (wywiadówka, dzień wolny)
+- <font color="#e53935">**czerwony pogrubiony wiersz**</font> = tego dnia jest sprawdzian/kartkówka z tego przedmiotu
+- <font color="#f9a825">**żółty pogrubiony wiersz**</font> = na ten dzień jest praca domowa
+
+> **Dlaczego kolor tekstu, a nie tło wiersza?** Karta markdown w Home Assistant
+> przepuszcza treść przez sanitizer (biblioteka `xss`), który usuwa atrybuty
+> `style`, `class` i `bgcolor` ze znaczników `<tr>` i `<td>`. Tła wiersza nie da się
+> więc ustawić bez dodatkowych modułów z HACS. Znacznik `<font color>` jest na
+> białej liście i działa bez żadnych instalacji.
 
 ### Karta planu na cały tydzień
 
@@ -355,7 +434,8 @@ content: |-
   | # | Godzina | Przedmiot | Sala |
   |---|---------|-----------|------|
   {%- for l in lekcje %}
-  | {{ l.numer }} | {{ l.od }}–{{ l.do }} | {% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo %}**{{ l.przedmiot }}** ⚠️{% else %}{{ l.przedmiot }}{% endif %}{% for w in l.wydarzenia %} 📝 {{ w.tytul }}{% endfor %}{% for z in l.zadania %} 📚 {{ z.kategoria }}{% endfor %} | {{ l.nauczyciel_sala }} |
+  {%- set k = '#e53935' if l.wydarzenia else ('#f9a825' if l.zadania else '') %}
+  | {% if k %}<font color="{{ k }}">**{% endif %}{{ l.numer }}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{{ l.od }}–{{ l.do }}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo and not k %}**{{ l.przedmiot }}** ⚠️{% elif l.zastepstwo %}{{ l.przedmiot }} ⚠️{% else %}{{ l.przedmiot }}{% endif %}{% for w in l.wydarzenia %} 📝 {{ w.tytul }}{% endfor %}{% for z in l.zadania %} 📚 {{ z.kategoria }}{% endfor %}{% if k %}**</font>{% endif %} | {% if k %}<font color="{{ k }}">**{% endif %}{{ l.nauczyciel_sala }}{% if k %}**</font>{% endif %} |
   {%- endfor %}
   {% endfor %}
   {%- else %}

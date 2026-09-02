@@ -17,7 +17,7 @@ from librus_apix.client import Client, new_client
 from librus_apix.exceptions import TokenError
 
 from .const import DOMAIN, SCAN_INTERVAL
-from .plan_lekcji import przetworz_plan
+from .plan_lekcji import DNI_TYGODNIA_PL, przetworz_plan
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -274,7 +274,10 @@ class LibrusApiClient:
                             for ev in day_events:
                                 events.append({
                                     "data": event_date.strftime("%Y-%m-%d"),
-                                    "tydzien": event_date.strftime("%A"),
+                                    "tydzien": DNI_TYGODNIA_PL.get(
+                                        event_date.strftime("%A"),
+                                        event_date.strftime("%A"),
+                                    ),
                                     "tytul": ev.title,
                                     "przedmiot": ev.subject,
                                     "godzina": ev.hour,
