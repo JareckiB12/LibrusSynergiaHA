@@ -234,12 +234,13 @@ cards:
     title: 📚 Plan lekcji
     subtitle: >-
       {% set p = 'sensor.librus_imie_nazwisko_plan_lekcji' %}
-      {% set n = states(p) | int(0) %}
-      {% if n > 0 %}
-        Dziś {{ n }} lekcji · {{ state_attr(p, 'pierwsza_lekcja') }}–{{ state_attr(p, 'ostatnia_lekcja') }}
-      {% else %}
-        Dziś brak lekcji 🎉
-      {% endif %}
+      {% set dt = state_attr(p, 'biezacy_dzien_data') %}
+      {% set tydzien = state_attr(p, 'tydzien') %}
+      {% set d = tydzien[dt] if dt in tydzien else [] %}
+      {% if not d %}Brak nadchodzących lekcji 🎉{% else %}{% if
+      dt == now().strftime('%Y-%m-%d') %}Dziś{% else
+      %}{{ state_attr(p, 'biezacy_dzien_nazwa') }} {{ state_attr(p, 'biezacy_dzien_data')
+      }}{% endif %} · {{ d | count }} lekcji · {{ d[0].od }}–{{ d[-1].do }}{% endif %}
 
   - type: custom:mushroom-template-card
     primary: >-
@@ -254,14 +255,18 @@ cards:
       {% if states(s) in ['unknown', 'unavailable', 'None'] %}
         —
       {% elif state_attr(s, 'trwa_teraz') %}
-        Trwa do {{ state_attr(s, 'do') }} · sala {{ state_attr(s, 'nauczyciel_sala') }}
+        Trwa do {{ state_attr(s, 'do') }} · {{ state_attr(s, 'nauczyciel_sala') }}
+      {% elif state_attr(s, 'data') != now().strftime('%Y-%m-%d') %}
+        {{ state_attr(s, 'dzien_tygodnia') }} {{ state_attr(s, 'od') }} · {{ state_attr(s, 'nauczyciel_sala') }}
       {% else %}
         {{ state_attr(s, 'numer') }}. lekcja · {{ state_attr(s, 'od') }} ·
         za {{ state_attr(s, 'za_minut') }} min
       {% endif %}
     icon: >-
       {% set s = 'sensor.librus_imie_nazwisko_nastepna_lekcja' %}
-      {% if state_attr(s, 'trwa_teraz') %}mdi:school{% else %}mdi:clock-start{% endif %}
+      {% if state_attr(s, 'trwa_teraz') %}mdi:school
+      {% elif state_attr(s, 'data') != now().strftime('%Y-%m-%d') %}mdi:calendar-clock
+      {% else %}mdi:clock-start{% endif %}
     icon_color: >-
       {% set s = 'sensor.librus_imie_nazwisko_nastepna_lekcja' %}
       {% if state_attr(s, 'zastepstwo') %}orange
@@ -289,44 +294,90 @@ cards:
       icon_color: orange
 
   - type: markdown
-    content: >-
-      {% set lekcje = state_attr('sensor.librus_imie_nazwisko_plan_lekcji', 'dzisiaj') %}
-      {% if lekcje %} | # | Godzina | Przedmiot | Sala |
-       |---|---------|-----------|------|
-      {% for l in lekcje %} | {{ l.numer }} | {{ l.od }}–{{ l.do }} |
-      {% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo %}**{{ l.przedmiot }}** ⚠️{% else %}{{ l.przedmiot }}{% endif %}
-      | {{ l.nauczyciel_sala }} |
+    content: |-
+      {%- set p = 'sensor.librus_imie_nazwisko_plan_lekcji' %}
+      {%- set d = state_attr(p, 'biezacy_dzien_data') %}
+      {%- set tydzien = state_attr(p, 'tydzien') %}
+      {%- set lekcje = tydzien[d] if d in tydzien else [] %}
+      {%- set wd = state_attr(p, 'wydarzenia_dnia') %}
+      {%- set zd = state_attr(p, 'zadania_dnia') %}
+      {%- if lekcje %}
+      **{{ state_attr(p, 'biezacy_dzien_nazwa') }}, {{ d }}**
+      {%- for w in (wd[d] if d in wd else []) %}
 
-      {% endfor %} {% else %} Dziś nie ma lekcji. {% endif %}
+      📌 {{ w.przedmiot }}{% if w.godzina not in ['', 'unknown'] %} · {{ w.godzina }}{% endif %}
+      {%- endfor %}
+      {%- for z in (zd[d] if d in zd else []) %}
+
+      📚 {{ z.przedmiot }} · {{ z.kategoria }}
+      {%- endfor %}
+
+      | # | Godzina | Przedmiot | Sala |
+      |---|---------|-----------|------|
+      {%- for l in lekcje %}
+      | {{ l.numer }} | {{ l.od }}–{{ l.do }} | {% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo %}**{{ l.przedmiot }}** ⚠️{% else %}{{ l.przedmiot }}{% endif %}{% for w in l.wydarzenia %} 📝 {{ w.tytul }}{% endfor %}{% for z in l.zadania %} 📚 {{ z.kategoria }}{% endfor %} | {{ l.nauczyciel_sala }} |
+      {%- endfor %}
+      {%- else %}
+      Brak nadchodzących lekcji.
+      {%- endif %}
 ```
 
 Legenda:
 - 🟢 zielona ikona = lekcja trwa teraz
 - 🟠 pomarańczowa + 🔀 badge = zastępstwo
 - ~~przekreślony~~ przedmiot = lekcja odwołana
+- 📝 przy przedmiocie = wydarzenie z terminarza (sprawdzian, kartkówka)
+- 📚 przy przedmiocie = praca domowa na ten dzień
+- 📌 nad tabelą = wydarzenie całodniowe (wywiadówka, dzień wolny)
 
 ### Karta planu na cały tydzień
 
 ```yaml
 type: markdown
 title: 🗓️ Plan tygodnia
-content: >-
-  {% set tydzien = state_attr('sensor.librus_imie_nazwisko_plan_lekcji', 'tydzien') %}
-  {% if tydzien %} {% for data, lekcje in tydzien.items() %}
+content: |-
+  {%- set p = 'sensor.librus_imie_nazwisko_plan_lekcji' %}
+  {%- set tydzien = state_attr(p, 'tydzien') %}
+  {%- set wd = state_attr(p, 'wydarzenia_dnia') %}
+  {%- set zd = state_attr(p, 'zadania_dnia') %}
+  {%- if tydzien %}
+  {%- for data, lekcje in tydzien.items() %}
   **{{ lekcje[0].dzien_tygodnia }} {{ data }}**
+  {%- for w in (wd[data] if data in wd else []) %}
+
+  📌 {{ w.przedmiot }}{% if w.godzina not in ['', 'unknown'] %} · {{ w.godzina }}{% endif %}
+  {%- endfor %}
+  {%- for z in (zd[data] if data in zd else []) %}
+
+  📚 {{ z.przedmiot }} · {{ z.kategoria }}
+  {%- endfor %}
 
   | # | Godzina | Przedmiot | Sala |
-   |---|---------|-----------|------|
-  {% for l in lekcje %} | {{ l.numer }} | {{ l.od }}–{{ l.do }} |
-  {% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo %}**{{ l.przedmiot }}** ⚠️{% else %}{{ l.przedmiot }}{% endif %}
-  | {{ l.nauczyciel_sala }} |
-
+  |---|---------|-----------|------|
+  {%- for l in lekcje %}
+  | {{ l.numer }} | {{ l.od }}–{{ l.do }} | {% if l.odwolana %}~~{{ l.przedmiot }}~~{% elif l.zastepstwo %}**{{ l.przedmiot }}** ⚠️{% else %}{{ l.przedmiot }}{% endif %}{% for w in l.wydarzenia %} 📝 {{ w.tytul }}{% endfor %}{% for z in l.zadania %} 📚 {{ z.kategoria }}{% endfor %} | {{ l.nauczyciel_sala }} |
+  {%- endfor %}
   {% endfor %}
-  {% endfor %} {% else %} Brak danych o planie lekcji. {% endif %}
+  {%- else %}
+  Brak danych o planie lekcji.
+  {%- endif %}
 ```
 
-Atrybut `tydzien` zawiera najbliższe 7 dni (integracja pobiera bieżący i następny tydzień,
-więc w piątek i w weekend widać już kolejny tydzień).
+**Dzień znika, gdy skończy się jego ostatnia lekcja.** Po ostatniej lekcji dnia karta
+przechodzi na najbliższy kolejny dzień z zajęciami, a plan tygodnia przestaje pokazywać
+dni już zakończone. Tę samą zasadę stosuje atrybut `zmiany` — zastępstwo z lekcji,
+która już się odbyła, nie jest raportowane.
+
+Atrybut `tydzien` (słownik `data → lekcje`) zawiera najbliższe 7 dni i jest **jedynym
+miejscem z listą lekcji** — recorder w Home Assistant odrzuca stan encji powyżej 16 KB
+atrybutów, więc lekcje nie są duplikowane. Dzień do wyświetlenia wskazują
+`biezacy_dzien_data` i `biezacy_dzien_nazwa`; karta pobiera lekcje przez
+`tydzien[biezacy_dzien_data]`. Czujnik przelicza to co minutę lokalnie, bez odpytywania
+Librusa.
+
+Każda lekcja ma pola `wydarzenia` (z terminarza) i `zadania` (prace domowe na ten dzień).
+Czego nie dało się przypiąć do konkretnej lekcji, trafia do `wydarzenia_dnia`
+i `zadania_dnia` (słowniki `data → lista`).
 
 ### Wykres średniej z przedmiotu (Gauge)
 ```yaml

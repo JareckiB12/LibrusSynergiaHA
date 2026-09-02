@@ -4,8 +4,11 @@ from datetime import date, datetime
 from types import SimpleNamespace
 
 from custom_components.librus_apix.plan_lekcji import (
+    biezacy_dzien,
+    dni_do_wyswietlenia,
     lekcje_dnia,
     nastepna_lekcja,
+    polacz_z_wydarzeniami,
     pogrupuj_wg_dni,
     przetworz_plan,
 )
@@ -164,3 +167,164 @@ def test_lekcje_dnia_i_grupowanie():
     dni = pogrupuj_wg_dni(plan)
     assert list(dni.keys()) == ["2026-09-07", "2026-09-08"]
     assert len(dni["2026-09-07"]) == 2
+
+
+def _dwa_dni():
+    """Plan na dzis (2 lekcje) i jutro (1 lekcja)."""
+    return przetworz_plan(
+        [
+            tydzien(
+                period(number=1, date_from="08:00", date_to="08:45"),
+                period(number=2, date_from="09:00", date_to="09:45", subject="Fizyka"),
+                period(
+                    number=1, date_="2026-09-08", weekday="Tuesday",
+                    date_from="08:00", date_to="08:45", subject="Historia",
+                ),
+            )
+        ]
+    )
+
+
+def test_biezacy_dzien_pokazuje_dzis_w_trakcie_zajec():
+    wynik = biezacy_dzien(_dwa_dni(), datetime(2026, 9, 7, 8, 30))
+
+    assert [l["data"] for l in wynik] == ["2026-09-07"] * 2
+
+
+def test_biezacy_dzien_pokazuje_dzis_az_do_konca_ostatniej_lekcji():
+    # Minuta przed koncem ostatniej lekcji dzien nadal jest aktualny.
+    wynik = biezacy_dzien(_dwa_dni(), datetime(2026, 9, 7, 9, 44))
+
+    assert wynik[0]["data"] == "2026-09-07"
+
+
+def test_biezacy_dzien_przechodzi_na_kolejny_po_ostatniej_lekcji():
+    wynik = biezacy_dzien(_dwa_dni(), datetime(2026, 9, 7, 9, 46))
+
+    assert [l["przedmiot"] for l in wynik] == ["Historia"]
+    assert wynik[0]["data"] == "2026-09-08"
+
+
+def test_biezacy_dzien_pusty_gdy_caly_plan_minal():
+    assert biezacy_dzien(_dwa_dni(), datetime(2026, 9, 9, 0, 0)) == []
+
+
+def test_dni_do_wyswietlenia_pomija_zakonczone():
+    dni = dni_do_wyswietlenia(_dwa_dni(), datetime(2026, 9, 7, 9, 46))
+
+    assert list(dni.keys()) == ["2026-09-08"]
+
+
+def test_dni_do_wyswietlenia_zachowuje_dzien_bez_godzin():
+    # Nie ukrywamy danych, ktorych nie da sie zinterpretowac.
+    plan = przetworz_plan([tydzien(period(date_from="", date_to=""))])
+
+    assert list(dni_do_wyswietlenia(plan, datetime(2026, 9, 9, 0, 0))) == ["2026-09-07"]
+
+
+def _plan_dnia():
+    """Trzy lekcje jednego dnia: fizyka jest lekcja nr 4."""
+    return przetworz_plan(
+        [
+            tydzien(
+                period(number=3, subject="matematyka"),
+                period(number=4, subject="fizyka"),
+                period(number=5, subject="historia"),
+            )
+        ]
+    )
+
+
+def _zdarzenie(**kw):
+    baza = {
+        "data": "2026-09-07",
+        "tytul": "kartkówka",
+        "przedmiot": "fizyka",
+        "godzina": "unknown",
+        "numer_lekcji": 4,
+        "szczegoly": {"Nauczyciel": "Anna Nowak", "Opis": "wielkości fizyczne"},
+    }
+    baza.update(kw)
+    return baza
+
+
+def test_wydarzenie_przypina_sie_po_numerze_lekcji():
+    plan, dnia, _ = polacz_z_wydarzeniami(_plan_dnia(), [_zdarzenie()])
+
+    fizyka = next(l for l in plan if l["numer"] == 4)
+    assert [w["tytul"] for w in fizyka["wydarzenia"]] == ["kartkówka"]
+    assert fizyka["wydarzenia"][0]["opis"] == "wielkości fizyczne"
+    assert dnia == {}
+    # pozostale lekcje nietkniete
+    assert all(not l["wydarzenia"] for l in plan if l["numer"] != 4)
+
+
+def test_wydarzenie_przypina_sie_po_przedmiocie_gdy_brak_numeru():
+    # Librus zwraca "unknown" zamiast numeru lekcji.
+    plan, dnia, _ = polacz_z_wydarzeniami(
+        _plan_dnia(), [_zdarzenie(numer_lekcji="unknown", przedmiot="Historia")]
+    )
+
+    historia = next(l for l in plan if l["numer"] == 5)
+    assert len(historia["wydarzenia"]) == 1
+    assert dnia == {}
+
+
+def test_wydarzenie_bez_dopasowania_trafia_do_calodniowych():
+    zdarzenie = _zdarzenie(
+        numer_lekcji="unknown",
+        tytul="godz.: 17:00",
+        przedmiot="Wywiadówka: zebranie rodziców",
+    )
+
+    plan, dnia, _ = polacz_z_wydarzeniami(_plan_dnia(), [zdarzenie])
+
+    assert all(not l["wydarzenia"] for l in plan)
+    assert [w["przedmiot"] for w in dnia["2026-09-07"]] == ["Wywiadówka: zebranie rodziców"]
+
+
+def test_wydarzenie_z_innego_dnia_jest_pomijane():
+    plan, dnia, _ = polacz_z_wydarzeniami(_plan_dnia(), [_zdarzenie(data="2026-10-01")])
+
+    assert all(not l["wydarzenia"] for l in plan)
+    assert dnia == {}
+
+
+def test_zadanie_przypina_sie_do_dnia_terminu():
+    zadanie = {
+        "przedmiot": "Matematyka",
+        "kategoria": "Praca domowa",
+        "termin": "2026-09-07",
+        "nauczyciel": "Danuta Kowalska",
+    }
+
+    plan, _, zadania_dnia = polacz_z_wydarzeniami(_plan_dnia(), None, [zadanie])
+
+    matematyka = next(l for l in plan if l["numer"] == 3)
+    assert [z["kategoria"] for z in matematyka["zadania"]] == ["Praca domowa"]
+    assert zadania_dnia == {}
+
+
+def test_zadanie_toleruje_date_z_kropkami():
+    zadanie = {"przedmiot": "fizyka", "kategoria": "Zadanie", "termin": "07.09.2026"}
+
+    plan, _, _ = polacz_z_wydarzeniami(_plan_dnia(), None, [zadanie])
+
+    assert len(next(l for l in plan if l["numer"] == 4)["zadania"]) == 1
+
+
+def test_zadanie_bez_lekcji_z_przedmiotu_trafia_do_calodniowych():
+    zadanie = {"przedmiot": "geografia", "kategoria": "Projekt", "termin": "2026-09-07"}
+
+    plan, _, zadania_dnia = polacz_z_wydarzeniami(_plan_dnia(), None, [zadanie])
+
+    assert all(not l["zadania"] for l in plan)
+    assert [z["przedmiot"] for z in zadania_dnia["2026-09-07"]] == ["geografia"]
+
+
+def test_polaczenie_bez_danych_nie_psuje_planu():
+    plan, dnia, zadania_dnia = polacz_z_wydarzeniami(_plan_dnia(), None, None)
+
+    assert len(plan) == 3
+    assert all(l["wydarzenia"] == [] and l["zadania"] == [] for l in plan)
+    assert dnia == {} and zadania_dnia == {}
