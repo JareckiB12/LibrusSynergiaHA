@@ -216,6 +216,16 @@ z planem lekcji:
 Zawiera trzy karty jedna pod drugą: **Nadchodzące wydarzenia → Plan lekcji →
 Plan tygodnia**.
 
+<p align="center">
+  <img src="images/dashboard-plan-lekcji.png" alt="Dashboard: nadchodzące wydarzenia, plan lekcji i plan tygodnia" width="420">
+</p>
+
+Na zrzucie widać, jak działa oznaczanie: kartkówka z fizyki jest przypięta do
+lekcji nr 4 w środę i podświetlona na czerwono, wywiadówka — której Librus nie
+przypisuje do żadnej lekcji — trafiła nad tabelę wtorku, a środa zniknęła
+z planu tygodnia, bo jej lekcje już się skończyły. Nazwiska nauczycieli
+zamazano.
+
 #### Jak go wdrożyć
 
 1. **Zainstaluj Mushroom Cards** — HACS → Frontend → wyszukaj `Mushroom`.
