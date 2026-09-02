@@ -1,14 +1,25 @@
 """Test the Librus APIX integration."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.librus_apix.const import DOMAIN
+
+
+def _dzis():
+    """Dzisiejsza data wedlug strefy Home Assistanta.
+
+    Czujniki uzywaja dt_util.now(), a nie zegara systemowego. W testach HA
+    stoi na UTC, wiec date.today() rozjezdzalo sie o jeden dzien w oknie
+    00:00-02:00 czasu lokalnego (i zaleznie od strefy runnera w CI).
+    """
+    return dt_util.now().date()
 
 
 @pytest.fixture(autouse=True)
@@ -19,7 +30,7 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 
 def _lekcja(numer, przedmiot, od, do, dzien=None, zastepstwo=False, odwolana=False):
     """Zbuduj wpis planu lekcji w formacie zwracanym przez async_get_timetable."""
-    dzien = dzien or date.today()
+    dzien = dzien or _dzis()
     return {
         "data": dzien.strftime("%Y-%m-%d"),
         "dzien_tygodnia": "Poniedziałek",
@@ -79,7 +90,7 @@ def mock_librus_client():
     client.async_get_timetable = AsyncMock(return_value=[
         _lekcja(1, "Matematyka", "08:00", "08:45"),
         _lekcja(2, "Fizyka", "09:00", "09:45", zastepstwo=True),
-        _lekcja(1, "Historia", "08:00", "08:45", dzien=date.today() + timedelta(days=1)),
+        _lekcja(1, "Historia", "08:00", "08:45", dzien=_dzis() + timedelta(days=1)),
     ])
     return client
 
@@ -116,7 +127,7 @@ async def test_plan_lekcji_sensor(hass: HomeAssistant, mock_config_entry, mock_l
     mock_librus_client.async_get_timetable.return_value = [
         _lekcja(1, "Matematyka", "00:00", "00:45"),
         _lekcja(2, "Fizyka", "23:10", "23:59", zastepstwo=True),
-        _lekcja(1, "Historia", "08:00", "08:45", dzien=date.today() + timedelta(days=1)),
+        _lekcja(1, "Historia", "08:00", "08:45", dzien=_dzis() + timedelta(days=1)),
     ]
 
     await _setup(hass, mock_config_entry, mock_librus_client)
@@ -126,7 +137,7 @@ async def test_plan_lekcji_sensor(hass: HomeAssistant, mock_config_entry, mock_l
     assert stan.state == "2"
     assert stan.attributes["pierwsza_lekcja"] == "00:00"
     assert stan.attributes["ostatnia_lekcja"] == "23:59"
-    jutro = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+    jutro = (_dzis() + timedelta(days=1)).strftime("%Y-%m-%d")
     assert [l["przedmiot"] for l in stan.attributes["tydzien"][jutro]] == ["Historia"]
     assert stan.attributes["sa_zmiany"] is True
     assert [l["przedmiot"] for l in stan.attributes["zmiany"]] == ["Fizyka"]
@@ -152,7 +163,7 @@ async def test_plan_lekcji_przeskakuje_na_kolejny_dzien(
     hass: HomeAssistant, mock_config_entry, mock_librus_client
 ):
     """Po ostatniej lekcji dnia czujnik pokazuje plan nastepnego dnia."""
-    jutro = date.today() + timedelta(days=1)
+    jutro = _dzis() + timedelta(days=1)
     mock_librus_client.async_get_timetable.return_value = [
         # Dzisiejsze lekcje sa juz po czasie (koncza sie o 00:01).
         _lekcja(1, "Matematyka", "00:00", "00:01"),
@@ -183,21 +194,21 @@ async def test_plan_lekcji_trzyma_sie_dzis_w_trakcie_zajec(
     """Dopoki trwa ostatnia lekcja, pokazywany jest biezacy dzien."""
     mock_librus_client.async_get_timetable.return_value = [
         _lekcja(1, "Matematyka", "00:00", "23:59"),
-        _lekcja(1, "Historia", "08:00", "08:45", dzien=date.today() + timedelta(days=1)),
+        _lekcja(1, "Historia", "08:00", "08:45", dzien=_dzis() + timedelta(days=1)),
     ]
 
     await _setup(hass, mock_config_entry, mock_librus_client)
 
     stan = hass.states.get("sensor.librus_jan_kowalski_plan_lekcji")
     assert [l["przedmiot"] for l in stan.attributes["tydzien"][stan.attributes["biezacy_dzien_data"]]] == ["Matematyka"]
-    assert stan.attributes["biezacy_dzien_data"] == date.today().strftime("%Y-%m-%d")
+    assert stan.attributes["biezacy_dzien_data"] == _dzis().strftime("%Y-%m-%d")
 
 
 async def test_plan_lekcji_zaznacza_wydarzenia_i_zadania(
     hass: HomeAssistant, mock_config_entry, mock_librus_client
 ):
     """Kartkowka trafia na swoja lekcje, wywiadowka do wydarzen calodniowych."""
-    dzis = date.today().strftime("%Y-%m-%d")
+    dzis = _dzis().strftime("%Y-%m-%d")
     mock_librus_client.async_get_timetable.return_value = [
         _lekcja(1, "matematyka", "00:00", "00:45"),
         _lekcja(4, "fizyka", "23:10", "23:59"),
@@ -240,7 +251,7 @@ async def test_plan_tygodnia_zawsze_pokazuje_piec_dni(
     hass: HomeAssistant, mock_config_entry, mock_librus_client
 ):
     """Po ostatniej lekcji dnia w planie nadal jest piec dni lekcyjnych."""
-    dzis = date.today()
+    dzis = _dzis()
     # Dzisiejsze lekcje juz sie skonczyly, kolejne szesc dni ma zajecia.
     plan = [_lekcja(1, "matematyka", "00:00", "00:01")]
     for i in range(1, 7):
