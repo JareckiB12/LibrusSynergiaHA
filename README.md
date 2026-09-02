@@ -73,6 +73,23 @@ Lub ręcznie:
    - **Hasło**: Twoje hasło do Librus
 4. Kliknij **"Prześlij"**
 
+### Częstotliwość odświeżania
+
+**Ustawienia → Urządzenia i usługi → Librus APIX → Konfiguruj**
+
+Domyślnie integracja odpytuje Librusa **co 2 godziny** (120 minut, zakres 15–1440).
+Zmiana działa od razu — Home Assistant przeładowuje integrację po zapisaniu opcji,
+restart nie jest potrzebny.
+
+Jedno odświeżenie to **8 zapytań HTTP**: oceny, wiadomości, zadania domowe, dane
+ucznia, terminarz (2 miesiące) i plan lekcji (2 tygodnie). Przy 120 minutach daje
+to około 96 zapytań na dobę. Warto o tym pamiętać, schodząc do 15 minut — będzie
+ich wtedy ponad 750.
+
+> Czujniki `Plan lekcji` i `Następna lekcja` przeliczają się **co minutę lokalnie**,
+> bez odpytywania Librusa. Dlatego odliczanie „za X minut" i przeskok na kolejny
+> dzień działają na bieżąco niezależnie od tego, jak rzadko pobierane są dane.
+
 Po dodaniu integracji encje pojawią się w ciągu kilku sekund. Gotowy dashboard
 z planem lekcji wklejasz z pliku
 **[`examples/dashboard-plan-lekcji.yaml`](examples/dashboard-plan-lekcji.yaml)** —
