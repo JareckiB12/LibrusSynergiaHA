@@ -73,6 +73,12 @@ Lub ręcznie:
    - **Hasło**: Twoje hasło do Librus
 4. Kliknij **"Prześlij"**
 
+Po dodaniu integracji encje pojawią się w ciągu kilku sekund. Gotowy dashboard
+z planem lekcji wklejasz z pliku
+**[`examples/dashboard-plan-lekcji.yaml`](examples/dashboard-plan-lekcji.yaml)** —
+instrukcja krok po kroku w sekcji
+[Gotowy dashboard](#-gotowy-dashboard--plik-do-wklejenia).
+
 ## 🔧 Środowisko testowe
 
 Projekt zawiera local środowisko testowe z Docker:
@@ -185,32 +191,38 @@ Legenda ikon:
 - ⚫ szara = przeczytana
 - 📎 badge = ma załącznik
 
-### Złożenie kart w widok jednokolumnowy
+### 🚀 Gotowy dashboard — plik do wklejenia
 
-Trzy karty poniżej dobrze czytają się jedna pod drugą, w kolejności:
-**Nadchodzące wydarzenia → Plan lekcji → Plan tygodnia**.
+Nie musisz składać kart ręcznie. W repozytorium jest kompletny dashboard
+z planem lekcji:
 
-> **Uwaga:** `max_columns: 1` w widoku **nie zadziała**. Domyślny widok Lovelace
-> (masonry) ma puste `setConfig()` i liczy kolumny wyłącznie z szerokości ekranu,
-> ignorując konfigurację. Jedyny pewny sposób na jedną kolumnę to opakowanie
-> wszystkiego w pojedynczy `vertical-stack` — widok dostaje wtedy jedną kartę,
-> więc nie ma czego rozkładać na kolumny.
+**[`examples/dashboard-plan-lekcji.yaml`](examples/dashboard-plan-lekcji.yaml)**
 
-```yaml
-views:
-  - title: Plan lekcji
-    path: plan
-    icon: mdi:timetable
-    cards:
-      - type: vertical-stack
-        cards:
-          # 1. wklej tu zawartość karty "Nadchodzące wydarzenia"
-          # 2. potem kartę "Plan lekcji (Mushroom)"
-          # 3. na końcu kartę "Plan tygodnia"
-```
+Zawiera trzy karty jedna pod drugą: **Nadchodzące wydarzenia → Plan lekcji →
+Plan tygodnia**.
 
-Karty „Nadchodzące wydarzenia" i „Plan lekcji" same są `vertical-stack` —
-zagnieżdżanie stosów jest w Lovelace poprawne, wklejasz je bez zmian.
+#### Jak go wdrożyć
+
+1. **Zainstaluj Mushroom Cards** — HACS → Frontend → wyszukaj `Mushroom`.
+   Bez tego karty `custom:mushroom-*` pokażą *„Custom element doesn't exist"*.
+2. **Sprawdź nazwę swojej encji** — Narzędzia deweloperskie → Stany, wpisz
+   `plan_lekcji`. Encje biorą nazwę od imienia i nazwiska ucznia, np.
+   `sensor.librus_jan_kowalski_plan_lekcji`.
+3. **Utwórz dashboard** — Ustawienia → Dashboardy → Dodaj dashboard →
+   Nowy dashboard od zera.
+4. **Wklej konfigurację** — otwórz nowy dashboard, menu ⋮ → Edytuj, potem
+   ponownie ⋮ → **Edytor nieprzetworzonej konfiguracji**. Wklej całą zawartość
+   pliku.
+5. **Podmień encję** — zamień w całym wklejonym tekście
+   `sensor.librus_imie_nazwisko` na swoją nazwę z kroku 2. Zapisz.
+
+> **Uwaga o układzie:** karty są opakowane w jeden `vertical-stack`, żeby
+> wymusić jedną kolumnę. `max_columns: 1` **nie zadziała** — domyślny widok
+> Lovelace (masonry) ma puste `setConfig()` i liczy kolumny wyłącznie
+> z szerokości ekranu, ignorując konfigurację widoku.
+
+Pojedyncze karty opisane są niżej — przydadzą się, jeśli chcesz je wpleść
+we własny dashboard zamiast używać gotowego pliku.
 
 ### Karta nadchodzących wydarzeń (4 tygodnie)
 
